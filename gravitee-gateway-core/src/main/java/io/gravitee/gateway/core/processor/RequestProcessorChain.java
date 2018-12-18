@@ -15,6 +15,7 @@
  */
 package io.gravitee.gateway.core.processor;
 
+import io.gravitee.gateway.api.ExecutionContext;
 import io.gravitee.gateway.api.buffer.Buffer;
 import io.gravitee.gateway.api.handler.Handler;
 import io.gravitee.gateway.api.stream.ReadStream;
@@ -60,15 +61,15 @@ public class RequestProcessorChain extends AbstractStreamableProcessor<Buffer> {
     }
 
     @Override
-    public void process(ProcessorContext context) {
+    public void handle(ExecutionContext context) {
         if (iterator.hasNext()) {
             StreamableProcessor<Buffer> next = iterator.next();
             lastProcessor = next;
             next
-                    .handler(buffer -> process(context))
+                    .handler(buffer -> handle(context))
                     .errorHandler(failure -> errorHandler.handle(failure))
                     .streamErrorHandler(failure -> streamErrorHandler.handle(failure))
-                    .process(context);
+                    .handle(context);
         } else {
             handler.handle(null);
         }

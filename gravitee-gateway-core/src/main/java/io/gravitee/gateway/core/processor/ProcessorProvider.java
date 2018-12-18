@@ -25,5 +25,5 @@ import io.gravitee.gateway.api.Response;
  */
 public interface ProcessorProvider<T, P extends Processor<T>> {
 
-    P provide(Request request, Response response, ExecutionContext executionContext);
+    P provide(ExecutionContext executionContext);
 }

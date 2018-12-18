@@ -15,15 +15,14 @@
  */
 package io.gravitee.gateway.core.processor;
 
+import io.gravitee.gateway.api.ExecutionContext;
 import io.gravitee.gateway.api.handler.Handler;
 
 /**
  * @author David BRASSELY (david.brassely at graviteesource.com)
  * @author GraviteeSource Team
  */
-public interface Processor<T> {
-
-    void process(ProcessorContext context);
+public interface Processor<T> extends Handler<ExecutionContext> {
 
     Processor<T> handler(Handler<T> handler);
 

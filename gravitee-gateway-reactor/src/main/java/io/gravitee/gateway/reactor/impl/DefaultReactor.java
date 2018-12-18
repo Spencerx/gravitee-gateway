@@ -22,10 +22,13 @@ import io.gravitee.common.http.HttpHeaders;
 import io.gravitee.common.http.HttpHeadersValues;
 import io.gravitee.common.http.HttpStatusCode;
 import io.gravitee.common.service.AbstractService;
+import io.gravitee.gateway.api.ExecutionContext;
 import io.gravitee.gateway.api.Request;
 import io.gravitee.gateway.api.Response;
 import io.gravitee.gateway.api.buffer.Buffer;
+import io.gravitee.gateway.api.context.SimpleExecutionContext;
 import io.gravitee.gateway.api.handler.Handler;
+import io.gravitee.gateway.core.processor.Processor;
 import io.gravitee.gateway.env.GatewayConfiguration;
 import io.gravitee.gateway.reactor.Reactable;
 import io.gravitee.gateway.reactor.Reactor;
@@ -34,6 +37,7 @@ import io.gravitee.gateway.reactor.handler.ReactorHandler;
 import io.gravitee.gateway.reactor.handler.ReactorHandlerRegistry;
 import io.gravitee.gateway.reactor.handler.ReactorHandlerResolver;
 import io.gravitee.gateway.reactor.handler.ResponseTimeHandler;
+import io.gravitee.gateway.reactor.handler.processor.SimpleProcessorChain;
 import io.gravitee.gateway.reactor.handler.reporter.ReporterHandler;
 import io.gravitee.gateway.reactor.handler.transaction.TransactionHandlerFactory;
 import io.gravitee.gateway.report.ReporterService;
@@ -41,6 +45,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
+
+import java.util.List;
 
 /**
  * @author David BRASSELY (david.brassely at graviteesource.com)
@@ -53,35 +59,55 @@ public class DefaultReactor extends AbstractService implements
 
     @Autowired
     private EventManager eventManager;
+
     @Autowired
     private Environment environment;
+
     @Autowired
     private ReactorHandlerRegistry reactorHandlerRegistry;
+
     @Autowired
     private ReactorHandlerResolver reactorHandlerResolver;
+
     @Autowired
     private ReporterService reporterService;
+
     @Autowired
     private TransactionHandlerFactory transactionHandlerFactory;
+
     @Autowired
     private GatewayConfiguration gatewayConfiguration;
 
+    private List<Processor> requestProcessors;
+
     @Override
-    public void route(Request serverRequest, Response serverResponse, final Handler<Response> handler) {
+    public void route(Request serverRequest, Response serverResponse) {
         LOGGER.debug("Receiving a request {} for path {}", serverRequest.id(), serverRequest.path());
 
+        // Prepare request execution context
+        ExecutionContext context = new SimpleExecutionContext(serverRequest, serverResponse);
+
         // Prepare handler chain
-        Handler<Request> requestHandlerChain = transactionHandlerFactory.create(request -> {
-            ReactorHandler reactorHandler = reactorHandlerResolver.resolve(request);
+        new SimpleProcessorChain(requestProcessors)
+                .handler(stream -> handleProxyInvocation(context, stream))
+                .errorHandler(failure -> handleError(context, failure))
+                .streamErrorHandler(failure -> handleError(context, failure))
+                .exitHandler(__ -> {
+                //    context.request().resume();
+                //    context.response().end();
+                })
+                .handle(context);
+
+        Handler<ExecutionContext> requestHandlerChain = transactionHandlerFactory.create(context -> {
+            ReactorHandler reactorHandler = reactorHandlerResolver.resolve(context.request());
             if (reactorHandler != null) {
                 // Prepare the handler chain
-                final Handler<Response> responseHandlerChain = new ResponseTimeHandler(request,
-                        new ReporterHandler(reporterService, request, handler));
+                final Handler<ExecutionContext> responseHandlerChain = new ResponseTimeHandler(context.request(),
+                        new ReporterHandler(reporterService));
 
-                reactorHandler.handle(request, serverResponse, responseHandlerChain);
+                reactorHandler.handle(context, responseHandlerChain);
             } else {
-                LOGGER.debug("No handler can be found for request {}, returning NOT_FOUND (404)", request.path());
-                sendNotFound(serverResponse, handler);
+                sendNotFound(context);
             }
         }, serverResponse);
 
@@ -89,21 +115,21 @@ public class DefaultReactor extends AbstractService implements
         serverRequest.metrics().setTenant(gatewayConfiguration.tenant().orElse(null));
 
         // And handle the request
-        requestHandlerChain.handle(serverRequest);
+        requestHandlerChain.handle(context);
     }
 
-    private void sendNotFound(Response serverResponse, Handler<Response> handler) {
+    private void sendNotFound(ExecutionContext context) {
+        LOGGER.debug("No handler can be found for request {}, returning NOT_FOUND (404)", context.request().path());
         // Send a NOT_FOUND HTTP status code (404)
-        serverResponse.status(HttpStatusCode.NOT_FOUND_404);
+        context.response().status(HttpStatusCode.NOT_FOUND_404);
 
         String message = environment.getProperty("http.errors[404].message", "No context-path matches the request URI.");
-        serverResponse.headers().set(HttpHeaders.CONTENT_LENGTH, Integer.toString(message.length()));
-        serverResponse.headers().set(HttpHeaders.CONTENT_TYPE, "text/plain");
-        serverResponse.headers().set(HttpHeaders.CONNECTION, HttpHeadersValues.CONNECTION_CLOSE);
-        serverResponse.write(Buffer.buffer(message));
+        context.response().headers().set(HttpHeaders.CONTENT_LENGTH, Integer.toString(message.length()));
+        context.response().headers().set(HttpHeaders.CONTENT_TYPE, "text/plain");
+        context.response().headers().set(HttpHeaders.CONNECTION, HttpHeadersValues.CONNECTION_CLOSE);
+        context.response().write(Buffer.buffer(message));
 
-        serverResponse.end();
-        handler.handle(serverResponse);
+        context.response().end();
     }
 
     @Override

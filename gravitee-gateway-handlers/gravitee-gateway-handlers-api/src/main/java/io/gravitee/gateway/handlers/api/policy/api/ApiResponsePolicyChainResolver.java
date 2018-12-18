@@ -16,8 +16,6 @@
 package io.gravitee.gateway.handlers.api.policy.api;
 
 import io.gravitee.gateway.api.ExecutionContext;
-import io.gravitee.gateway.api.Request;
-import io.gravitee.gateway.api.Response;
 import io.gravitee.gateway.core.processor.StreamableProcessor;
 import io.gravitee.gateway.policy.StreamType;
 import io.gravitee.policy.api.PolicyResult;
@@ -32,7 +30,7 @@ import io.gravitee.policy.api.PolicyResult;
 public class ApiResponsePolicyChainResolver extends ApiPolicyChainResolver {
 
     @Override
-    public StreamableProcessor<PolicyResult> provide(Request request, Response response, ExecutionContext executionContext) {
-        return resolve(StreamType.ON_RESPONSE, request, response, executionContext);
+    public StreamableProcessor<PolicyResult> provide(ExecutionContext context) {
+        return resolve(StreamType.ON_RESPONSE, context.request(), context.response(), context);
     }
 }

@@ -85,7 +85,7 @@ public class ReactorTest {
         when(request.path()).thenReturn("/team");
         when(request.metrics()).thenReturn(Metrics.on(System.currentTimeMillis()).build());
 
-        dummyReactorHandler.setExecutionContextFactory(executionContextFactory);
+//        dummyReactorHandler.setExecutionContextFactory(executionContextFactory);
 
         when(handlerResolver.resolve(any(Request.class))).thenReturn(dummyReactorHandler);
 
@@ -93,8 +93,8 @@ public class ReactorTest {
         Response proxyResponse = mock(Response.class);
         when(proxyResponse.headers()).thenReturn(new HttpHeaders());
 
-        reactor.route(request, proxyResponse, response -> {
-            Assert.assertEquals(HttpStatusCode.OK_200, response.status());
+        reactor.route(request, proxyResponse, context -> {
+            Assert.assertEquals(HttpStatusCode.OK_200, context.response().status());
             lock.countDown();
         });
 

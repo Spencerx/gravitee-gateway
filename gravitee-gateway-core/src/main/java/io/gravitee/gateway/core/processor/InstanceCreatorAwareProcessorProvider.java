@@ -16,8 +16,6 @@
 package io.gravitee.gateway.core.processor;
 
 import io.gravitee.gateway.api.ExecutionContext;
-import io.gravitee.gateway.api.Request;
-import io.gravitee.gateway.api.Response;
 
 import java.util.function.Function;
 
@@ -34,7 +32,7 @@ public class InstanceCreatorAwareProcessorProvider implements ProcessorProvider 
     }
 
     @Override
-    public Processor provide(Request request, Response response, ExecutionContext executionContext) {
+    public Processor provide(ExecutionContext context) {
         return function.apply(null);
     }
 }

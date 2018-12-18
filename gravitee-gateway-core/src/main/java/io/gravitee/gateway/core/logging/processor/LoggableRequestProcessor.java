@@ -15,11 +15,12 @@
  */
 package io.gravitee.gateway.core.logging.processor;
 
+import io.gravitee.gateway.api.ExecutionContext;
+import io.gravitee.gateway.api.context.MutableExecutionContext;
 import io.gravitee.gateway.core.logging.LoggableClientRequest;
 import io.gravitee.gateway.core.logging.LoggableClientResponse;
 import io.gravitee.gateway.core.logging.condition.evaluation.ConditionEvaluator;
 import io.gravitee.gateway.core.processor.AbstractProcessor;
-import io.gravitee.gateway.core.processor.ProcessorContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,13 +39,13 @@ public class LoggableRequestProcessor extends AbstractProcessor {
     }
 
     @Override
-    public void process(ProcessorContext context) {
+    public void handle(ExecutionContext context) {
         try {
             boolean condition = evaluate(context);
 
             if (condition) {
-                context.setRequest(new LoggableClientRequest(context.getRequest()));
-                context.setResponse(new LoggableClientResponse(context.getRequest(), context.getResponse()));
+                ((MutableExecutionContext)context).request(new LoggableClientRequest(context.request()));
+                ((MutableExecutionContext)context).response(new LoggableClientResponse(context.request(), context.response()));
             }
         } catch (Exception ex) {
             logger.warn("Unexpected error while evaluating logging condition: {}", ex.getMessage());
@@ -53,7 +54,7 @@ public class LoggableRequestProcessor extends AbstractProcessor {
         handler.handle(null);
     }
 
-    protected boolean evaluate(ProcessorContext context) throws Exception {
-        return evaluator.evaluate(context.getRequest(), context.getContext());
+    protected boolean evaluate(ExecutionContext context) throws Exception {
+        return evaluator.evaluate(context.request(), context);
     }
 }

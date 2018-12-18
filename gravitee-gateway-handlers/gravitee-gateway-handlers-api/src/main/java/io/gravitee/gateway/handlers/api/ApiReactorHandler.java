@@ -29,34 +29,30 @@ import io.gravitee.gateway.api.Invoker;
 import io.gravitee.gateway.api.Request;
 import io.gravitee.gateway.api.Response;
 import io.gravitee.gateway.api.buffer.Buffer;
-import io.gravitee.gateway.api.handler.Handler;
 import io.gravitee.gateway.api.proxy.ProxyResponse;
 import io.gravitee.gateway.core.endpoint.lifecycle.GroupLifecyleManager;
 import io.gravitee.gateway.core.invoker.EndpointInvoker;
 import io.gravitee.gateway.core.processor.*;
 import io.gravitee.gateway.core.proxy.DirectProxyConnection;
 import io.gravitee.gateway.handlers.api.definition.Api;
-import io.gravitee.gateway.handlers.api.metrics.PathMappingMetricsHandler;
 import io.gravitee.gateway.handlers.api.policy.api.ApiPolicyChainResolver;
 import io.gravitee.gateway.handlers.api.policy.api.ApiResponsePolicyChainResolver;
 import io.gravitee.gateway.handlers.api.policy.plan.PlanPolicyChainResolver;
+import io.gravitee.gateway.handlers.api.processor.alert.AlertProcessor;
 import io.gravitee.gateway.handlers.api.processor.cors.CorsPreflightRequestProcessor;
 import io.gravitee.gateway.handlers.api.processor.cors.CorsSimpleRequestProcessor;
 import io.gravitee.gateway.handlers.api.processor.logging.ApiLoggableRequestProcessor;
+import io.gravitee.gateway.handlers.api.processor.pathmapping.PathMappingProcessor;
 import io.gravitee.gateway.policy.PolicyChainResolver;
 import io.gravitee.gateway.policy.PolicyManager;
 import io.gravitee.gateway.reactor.Reactable;
 import io.gravitee.gateway.reactor.handler.AbstractReactorHandler;
-import io.gravitee.gateway.reactor.handler.alert.AlertHandler;
 import io.gravitee.gateway.resource.ResourceLifecycleManager;
 import io.gravitee.gateway.security.core.SecurityPolicyChainResolver;
-import io.gravitee.node.api.Node;
-import io.gravitee.plugin.alert.AlertEngineService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,68 +82,55 @@ public class ApiReactorHandler extends AbstractReactorHandler implements Initial
 
     private List<ProcessorProvider> requestProcessors, responseProcessors, errorProcessors;
 
-    @Autowired
-    private AlertEngineService alertEngineService;
-
-    @Autowired
-    private Node node;
-    @Value("${http.port:8082}")
-    private String port;
-
     @Override
-    protected void doHandle(Request serverRequest, Response serverResponse, ExecutionContext executionContext, Handler<Response> handler) {
+    protected void doHandle(final ExecutionContext context) {
+        final Request request = context.request();
+
         // Pause the request and resume it as soon as all the stream are plugged and we have processed the HEAD part
         // of the request. (see handleProxyInvocation method).
-        serverRequest.pause();
+        request.pause();
 
-        if (api.getPathMappings() != null && !api.getPathMappings().isEmpty()) {
-            handler = new PathMappingMetricsHandler(handler, api.getPathMappings(), serverRequest);
-        }
-
-        executionContext.setAttribute(ExecutionContext.ATTR_CONTEXT_PATH, serverRequest.contextPath());
-        executionContext.setAttribute(ExecutionContext.ATTR_API, api.getId());
-        executionContext.setAttribute(ExecutionContext.ATTR_INVOKER, invoker);
+        context.setAttribute(ExecutionContext.ATTR_CONTEXT_PATH, request.contextPath());
+        context.setAttribute(ExecutionContext.ATTR_API, api.getId());
+        context.setAttribute(ExecutionContext.ATTR_INVOKER, invoker);
 
         // Prepare request metrics
-        serverRequest.metrics().setApi(api.getId());
-        serverRequest.metrics().setPath(serverRequest.pathInfo());
+        request.metrics().setApi(api.getId());
+        request.metrics().setPath(request.pathInfo());
 
-        // It's time to process the incoming client request
-        handleClientRequest(serverRequest, serverResponse, executionContext, handler);
+        // It's time to process incoming client request
+        handleClientRequest(context);
     }
 
-    private void handleClientRequest(final Request serverRequest, final Response serverResponse, final ExecutionContext executionContext, final Handler<Response> handler) {
-        // Process incoming request
-        ProcessorContext context = ProcessorContext.from(serverRequest, serverResponse, executionContext);
-        StreamableProcessor<StreamableProcessor<Buffer>> requestProcessor = new ProviderProcessorChain(requestProcessors);
-        requestProcessor
-                .handler(stream -> handleProxyInvocation(context, stream, handler))
-                .errorHandler(failure -> handleError(context, failure, handler))
-                .streamErrorHandler(failure -> handleError(context, failure, handler))
+    private void handleClientRequest(final ExecutionContext context) {
+        new ProviderProcessorChain(requestProcessors)
+                .handler(stream -> handleProxyInvocation(context, stream))
+                .errorHandler(failure -> handleError(context, failure))
+                .streamErrorHandler(failure -> handleError(context, failure))
                 .exitHandler(__ -> {
-                    context.getRequest().resume();
-                    context.getResponse().end();
-                    handler.handle(context.getResponse());
+                    context.request().resume();
+                    context.response().end();
                 })
-                .process(context);
+                .handle(context);
     }
 
-    private void handleProxyInvocation(final ProcessorContext processorContext, final StreamableProcessor<Buffer> processor, final Handler<Response> handler) {
+    private void handleProxyInvocation(final ExecutionContext context, final StreamableProcessor<Buffer> processor) {
         // Call an invoker to get a proxy connection (connection to an underlying backend, mainly HTTP)
-        Invoker upstreamInvoker = (Invoker) processorContext.getContext().getAttribute(ExecutionContext.ATTR_INVOKER);
+        Invoker upstreamInvoker = (Invoker) context.getAttribute(ExecutionContext.ATTR_INVOKER);
 
         final long serviceInvocationStart = System.currentTimeMillis();
-        Request invokeRequest = upstreamInvoker.invoke(processorContext.getContext(), processorContext.getRequest(), processor, connection -> {
-            connection.responseHandler(proxyResponse -> handleProxyResponse(processorContext, proxyResponse, serviceInvocationStart, handler));
+        Request invokeRequest = upstreamInvoker.invoke(context, processor, connection -> {
+            connection.responseHandler(proxyResponse -> handleProxyResponse(context, proxyResponse, serviceInvocationStart));
 
-            // OVerride the stream error handler to be able to cancel connection to backend
+            // Override the stream error handler to be able to cancel connection to backend
             processor.streamErrorHandler(failure -> {
                 connection.cancel();
-                handleError(processorContext, failure, handler);
+                handleError(context, failure);
             });
         });
 
-        processorContext.setRequest(invokeRequest);
+        //TODO: not sure it should be done here, check FailoverInvoker
+        //context.setRequest(invokeRequest);
 
         // Plug server request stream to request processor stream
         invokeRequest
@@ -155,66 +138,57 @@ public class ApiReactorHandler extends AbstractReactorHandler implements Initial
                 .endHandler(aVoid -> processor.end());
     }
 
-    private void handleProxyResponse(final ProcessorContext processorContext, final ProxyResponse proxyResponse, final long serviceInvocationStart, final Handler<Response> handler) {
+    private void handleProxyResponse(final ExecutionContext context, final ProxyResponse proxyResponse,
+                                     final long serviceInvocationStart) {
         if (proxyResponse == null || proxyResponse instanceof DirectProxyConnection.DirectResponse) {
-            processorContext.getResponse().status((proxyResponse == null) ? HttpStatusCode.SERVICE_UNAVAILABLE_503 : proxyResponse.status());
-            processorContext.getResponse().end();
-            handler.handle(processorContext.getResponse());
+            context.response().status((proxyResponse == null) ? HttpStatusCode.SERVICE_UNAVAILABLE_503 : proxyResponse.status());
+            context.response().end();
         } else {
-            handleClientResponse(processorContext, proxyResponse, serviceInvocationStart, handler);
+            handleClientResponse(context, proxyResponse, serviceInvocationStart);
         }
     }
 
-    private void handleClientResponse(final ProcessorContext context, final ProxyResponse proxyResponse, final long serviceInvocationStart, final Handler<Response> handler) {
+    private void handleClientResponse(final ExecutionContext context, final ProxyResponse proxyResponse, final long serviceInvocationStart) {
         // Set the status
-        context.getResponse().status(proxyResponse.status());
+        context.response().status(proxyResponse.status());
 
         // Copy HTTP headers
-        proxyResponse.headers().forEach((headerName, headerValues) -> context.getResponse().headers().put(headerName, headerValues));
+        proxyResponse.headers().forEach((headerName, headerValues) -> context.response().headers().put(headerName, headerValues));
 
         StreamableProcessor<StreamableProcessor<Buffer>> responseProcessor = new ProviderProcessorChain(responseProcessors);
         responseProcessor
                 .handler(stream -> {
                     stream
-                            .bodyHandler(chunk -> context.getResponse().write(chunk))
-                            .endHandler(__ -> {
-                                context.getResponse().end();
-                                handler.handle(context.getResponse());
+                            .bodyHandler(chunk -> context.response().write(chunk))
+                            .endHandler(__ -> context.response().end());
+
+                    proxyResponse
+                            .bodyHandler(buffer -> {
+                                stream.write(buffer);
+
+                                if (context.response().writeQueueFull()) {
+                                    proxyResponse.pause();
+                                    context.response().drainHandler(aVoid -> proxyResponse.resume());
+                                }
+                            }).endHandler(__ -> {
+                                stream.end();
+                                context.request().metrics().setApiResponseTimeMs(System.currentTimeMillis() - serviceInvocationStart);
                             });
-
-                    proxyResponse.bodyHandler(buffer -> {
-                        stream.write(buffer);
-
-                        if (context.getResponse().writeQueueFull()) {
-                            proxyResponse.pause();
-                            context.getResponse().drainHandler(aVoid -> proxyResponse.resume());
-                        }
-                    });
-                    proxyResponse.endHandler(__ -> {
-                        stream.end();
-                        context.getRequest().metrics().setApiResponseTimeMs(System.currentTimeMillis() - serviceInvocationStart);
-                    });
                 })
-                .errorHandler(failure -> handleError(context, failure, handler))
-                .streamErrorHandler(failure -> handleError(context, failure, handler))
-                .exitHandler(__ -> {
-                    context.getResponse().end();
-                    handler.handle(context.getResponse());
-                })
-                .process(context);
+                .errorHandler(failure -> handleError(context, failure))
+                .streamErrorHandler(failure -> handleError(context, failure))
+                .exitHandler(__ -> context.response().end())
+                .handle(context);
 
         // Resume response read
         proxyResponse.resume();
     }
 
-    private void handleError(ProcessorContext context, ProcessorFailure failure, Handler<Response> handler) {
+    private void handleError(ExecutionContext context, ProcessorFailure failure) {
         StreamableProcessor<StreamableProcessor<Buffer>> errorProcessor = new ProviderProcessorChain(errorProcessors);
         errorProcessor
-                .handler(__ -> {
-                    handleProcessorFailure(failure, context.getResponse());
-                    handler.handle(context.getResponse());
-                })
-                .process(context);
+                .handler(__ -> handleProcessorFailure(failure, context.response()))
+                .handle(context);
     }
 
     private void handleProcessorFailure(ProcessorFailure failure, Response response) {
@@ -295,6 +269,14 @@ public class ApiReactorHandler extends AbstractReactorHandler implements Initial
             errorProcessors.add(new InstanceCreatorAwareProcessorProvider(
                     (Function<Void, Processor>) useless -> new CorsSimpleRequestProcessor(api.getProxy().getCors())));
         }
+
+        if (api.getPathMappings() != null && !api.getPathMappings().isEmpty()) {
+            responseProcessors.add(new InstanceCreatorAwareProcessorProvider(
+                    (Function<Void, Processor>) useless -> new PathMappingProcessor(api.getPathMappings())));
+        }
+
+        responseProcessors.add(new InstanceCreatorAwareProcessorProvider(
+                (Function<Void, Processor>) useless -> new AlertProcessor()));
 
         requestProcessors.add(securityPolicyResolver);
 

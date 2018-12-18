@@ -21,8 +21,6 @@ import io.gravitee.gateway.api.Request;
 import io.gravitee.gateway.api.Response;
 import io.gravitee.gateway.api.handler.Handler;
 import io.gravitee.gateway.api.stream.BufferedReadWriteStream;
-import io.gravitee.gateway.core.processor.Processor;
-import io.gravitee.gateway.core.processor.ProcessorContext;
 import io.gravitee.gateway.core.processor.ProcessorFailure;
 import io.gravitee.gateway.core.processor.StreamableProcessor;
 import io.gravitee.gateway.policy.Policy;
@@ -97,8 +95,8 @@ public abstract class PolicyChain extends BufferedReadWriteStream
     }
 
     @Override
-    public void process(ProcessorContext context) {
-        doNext(context.getRequest(), context.getResponse());
+    public void process(ExecutionContext context) {
+        doNext(context.request(), context.response());
     }
 
     @Override

@@ -62,8 +62,8 @@ public abstract class AbstractPolicyChainResolver implements PolicyChainResolver
                                               ExecutionContext executionContext);
 
     @Override
-    public StreamableProcessor<PolicyResult> provide(Request request, Response response, ExecutionContext executionContext) {
-        return resolve(StreamType.ON_REQUEST, request, response, executionContext);
+    public StreamableProcessor<PolicyResult> provide(ExecutionContext context) {
+        return resolve(StreamType.ON_REQUEST, context.request(), context.response(), context);
     }
 
     public void setPolicyManager(PolicyManager policyManager) {

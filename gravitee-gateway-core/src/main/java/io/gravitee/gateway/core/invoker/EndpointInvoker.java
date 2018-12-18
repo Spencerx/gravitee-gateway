@@ -55,8 +55,8 @@ public class EndpointInvoker implements Invoker {
     private EndpointResolver endpointResolver;
 
     @Override
-    public Request invoke(ExecutionContext executionContext, Request serverRequest, ReadStream<Buffer> stream, Handler<ProxyConnection> connectionHandler) {
-        EndpointResolver.ResolvedEndpoint endpoint = endpointResolver.resolve(serverRequest, executionContext);
+    public Request invoke(ExecutionContext context, ReadStream<Buffer> stream, Handler<ProxyConnection> connectionHandler) {
+        EndpointResolver.ResolvedEndpoint endpoint = endpointResolver.resolve(context.request(), context);
 
         // Endpoint can be null if none endpoint can be selected or if the selected endpoint is unavailable
         if (endpoint == null) {
@@ -66,9 +66,9 @@ public class EndpointInvoker implements Invoker {
         } else {
             URI uri = null;
             try {
-                uri = encodeQueryParameters(endpoint.getUri(), serverRequest.parameters());
+                uri = encodeQueryParameters(endpoint.getUri(), context.request().parameters());
             } catch (Exception ex) {
-                serverRequest.metrics().setMessage(getStackTraceAsString(ex));
+                context.request().metrics().setMessage(getStackTraceAsString(ex));
 
                 // Request URI is not correct nor correctly encoded, returning a bad request
                 DirectProxyConnection statusOnlyConnection = new DirectProxyConnection(HttpStatusCode.BAD_REQUEST_400);
@@ -78,19 +78,19 @@ public class EndpointInvoker implements Invoker {
 
             if (uri != null) {
                 // Add the endpoint reference in metrics to know which endpoint has been invoked while serving the request
-                serverRequest.metrics().setEndpoint(uri.toString());
+                context.request().metrics().setEndpoint(uri.toString());
 
-                ProxyRequest proxyRequest = ProxyRequestBuilder.from(serverRequest)
+                ProxyRequest proxyRequest = ProxyRequestBuilder.from(context.request())
                         .uri(uri)
-                        .method(setHttpMethod(executionContext, serverRequest))
-                        .rawMethod(serverRequest.rawMethod())
-                        .headers(serverRequest.headers())
+                        .method(setHttpMethod(context))
+                        .rawMethod(context.request().rawMethod())
+                        .headers(context.request().headers())
                         .build();
 
                 ProxyConnection proxyConnection = endpoint.getConnector().request(proxyRequest);
 
                 // Enable logging at proxy level
-                Object loggingAttr = executionContext.getAttribute(ExecutionContext.ATTR_PREFIX + "logging.proxy");
+                Object loggingAttr = context.getAttribute(ExecutionContext.ATTR_PREFIX + "logging.proxy");
                 if (loggingAttr != null && ((boolean) loggingAttr)) {
                     proxyConnection = new LoggableProxyConnection(proxyConnection, proxyRequest);
                 }
@@ -105,8 +105,8 @@ public class EndpointInvoker implements Invoker {
                             finalProxyConnection.write(buffer);
 
                             if (finalProxyConnection.writeQueueFull()) {
-                                serverRequest.pause();
-                                finalProxyConnection.drainHandler(aVoid -> serverRequest.resume());
+                                context.request().pause();
+                                finalProxyConnection.drainHandler(aVoid -> context.request().resume());
                             }
                         })
                         .endHandler(aVoid -> finalProxyConnection.end());
@@ -114,12 +114,12 @@ public class EndpointInvoker implements Invoker {
         }
 
         // Resume the incoming request to handle content and end
-        serverRequest.resume();
+        context.request().resume();
 
-        return serverRequest;
+        return context.request();
     }
 
-    private URI encodeQueryParameters(String uri, MultiValueMap<String, String> parameters) throws MalformedURLException, URISyntaxException {
+    private URI encodeQueryParameters(String uri, MultiValueMap<String, String> parameters) throws URISyntaxException {
         if (parameters != null && !parameters.isEmpty()) {
             QueryStringEncoder encoder = new QueryStringEncoder(uri);
 
@@ -137,10 +137,10 @@ public class EndpointInvoker implements Invoker {
         return URI.create(uri);
     }
 
-    private HttpMethod setHttpMethod(ExecutionContext executionContext, Request request) {
+    private HttpMethod setHttpMethod(ExecutionContext context) {
         io.gravitee.common.http.HttpMethod overrideMethod = (io.gravitee.common.http.HttpMethod)
-                executionContext.getAttribute(ExecutionContext.ATTR_REQUEST_METHOD);
-        return (overrideMethod == null) ? request.method() : overrideMethod;
+                context.getAttribute(ExecutionContext.ATTR_REQUEST_METHOD);
+        return (overrideMethod == null) ? context.request().method() : overrideMethod;
     }
 
     private static String getStackTraceAsString(Throwable throwable) {
