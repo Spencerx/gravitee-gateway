@@ -44,7 +44,7 @@ public class CorsPreflightRequestProcessor extends CorsRequestProcessor {
         } else {
             // we are in the context
             // Let's continue request processing
-            handler.handle(null);
+            next.handle(null);
         }
     }
 

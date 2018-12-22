@@ -23,13 +23,13 @@ import io.gravitee.gateway.api.handler.Handler;
  */
 public abstract class AbstractProcessor<T> implements Processor<T> {
 
-    protected Handler<T> handler;
+    protected Handler<T> next;
     protected Handler<T> exitHandler;
     protected Handler<ProcessorFailure> errorHandler;
 
     @Override
     public Processor<T> handler(Handler<T> handler) {
-        this.handler = handler;
+        this.next = handler;
         return this;
     }
 

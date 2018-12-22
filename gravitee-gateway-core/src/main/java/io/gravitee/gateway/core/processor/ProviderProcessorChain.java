@@ -83,7 +83,7 @@ public class ProviderProcessorChain extends AbstractStreamableProcessor<Streamab
 
             processor.handle(context);
         } else {
-            handler.handle((StreamableProcessor<Buffer>) lastProcessor);
+            next.handle((StreamableProcessor<Buffer>) lastProcessor);
         }
     }
 }

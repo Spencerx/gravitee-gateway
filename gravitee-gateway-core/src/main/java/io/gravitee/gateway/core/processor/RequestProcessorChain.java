@@ -71,7 +71,7 @@ public class RequestProcessorChain extends AbstractStreamableProcessor<Buffer> {
                     .streamErrorHandler(failure -> streamErrorHandler.handle(failure))
                     .handle(context);
         } else {
-            handler.handle(null);
+            next.handle(null);
         }
     }
 }

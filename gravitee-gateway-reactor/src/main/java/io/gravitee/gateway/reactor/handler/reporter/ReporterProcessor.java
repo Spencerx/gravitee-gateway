@@ -16,7 +16,7 @@
 package io.gravitee.gateway.reactor.handler.reporter;
 
 import io.gravitee.gateway.api.ExecutionContext;
-import io.gravitee.gateway.api.handler.Handler;
+import io.gravitee.gateway.core.processor.AbstractProcessor;
 import io.gravitee.gateway.report.ReporterService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,13 +25,13 @@ import org.slf4j.LoggerFactory;
  * @author David BRASSELY (david.brassely at graviteesource.com)
  * @author GraviteeSource Team
  */
-public class ReporterHandler implements Handler<ExecutionContext> {
+public class ReporterProcessor extends AbstractProcessor<Void> {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(ReporterHandler.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ReporterProcessor.class);
 
     private final ReporterService reporterService;
 
-    public ReporterHandler(final ReporterService reporterService) {
+    public ReporterProcessor(final ReporterService reporterService) {
         this.reporterService = reporterService;
     }
 
@@ -49,5 +49,7 @@ public class ReporterHandler implements Handler<ExecutionContext> {
         } catch (Exception ex) {
             LOGGER.error("An error occurs while reporting metrics", ex);
         }
+
+        next.handle(null);
     }
 }

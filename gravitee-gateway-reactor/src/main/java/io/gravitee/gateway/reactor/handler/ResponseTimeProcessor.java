@@ -16,32 +16,23 @@
 package io.gravitee.gateway.reactor.handler;
 
 import io.gravitee.gateway.api.ExecutionContext;
-import io.gravitee.gateway.api.Request;
-import io.gravitee.gateway.api.handler.Handler;
+import io.gravitee.gateway.core.processor.AbstractProcessor;
 
 /**
  * @author David BRASSELY (david.brassely at graviteesource.com)
  * @author GraviteeSource Team
  */
-public class ResponseTimeHandler implements Handler<ExecutionContext> {
-
-    private final Handler<ExecutionContext> next;
-    private final Request serverRequest;
-
-    public ResponseTimeHandler(final Request serverRequest, final Handler<ExecutionContext> next) {
-        this.serverRequest = serverRequest;
-        this.next = next;
-    }
+public class ResponseTimeProcessor extends AbstractProcessor<Void> {
 
     @Override
     public void handle(ExecutionContext context) {
         // Compute response-time and add it to the metrics
-        long proxyResponseTimeInMs = System.currentTimeMillis() - serverRequest.metrics().timestamp().toEpochMilli();
-        serverRequest.metrics().setStatus(context.response().status());
-        serverRequest.metrics().setProxyResponseTimeMs(proxyResponseTimeInMs);
-        serverRequest.metrics().setProxyLatencyMs(proxyResponseTimeInMs - serverRequest.metrics().getApiResponseTimeMs());
+        long proxyResponseTimeInMs = System.currentTimeMillis() - context.request().metrics().timestamp().toEpochMilli();
+        context.request().metrics().setStatus(context.response().status());
+        context.request().metrics().setProxyResponseTimeMs(proxyResponseTimeInMs);
+        context.request().metrics().setProxyLatencyMs(proxyResponseTimeInMs - context.request().metrics().getApiResponseTimeMs());
 
         // Push response to the next handler
-        next.handle(context);
+        next.handle(null);
     }
 }

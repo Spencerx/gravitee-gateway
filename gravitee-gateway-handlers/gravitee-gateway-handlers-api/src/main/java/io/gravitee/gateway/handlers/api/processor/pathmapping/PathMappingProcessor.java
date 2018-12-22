@@ -47,6 +47,6 @@ public class PathMappingProcessor extends AbstractProcessor<Void> {
                 .findFirst()
                 .ifPresent(resolvedMappedPath -> result.request().metrics().setMappedPath(resolvedMappedPath));
 
-        handler.handle(null);
+        next.handle(null);
     }
 }

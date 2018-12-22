@@ -34,7 +34,7 @@ public class CorsSimpleRequestProcessor extends CorsRequestProcessor {
     @Override
     public void handle(ExecutionContext context) {
         handleSimpleCrossOriginRequest(context.request(), context.response());
-        handler.handle(null);
+        next.handle(null);
     }
 
     private void handleSimpleCrossOriginRequest(Request request, Response response) {

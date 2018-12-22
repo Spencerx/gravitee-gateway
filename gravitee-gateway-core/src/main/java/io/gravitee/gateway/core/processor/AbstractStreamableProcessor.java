@@ -27,7 +27,7 @@ public abstract class AbstractStreamableProcessor<T> extends AbstractProcessor<T
 
     @Override
     public StreamableProcessor<T> handler(Handler<T> handler) {
-        this.handler = handler;
+        this.next = handler;
         return this;
     }
 

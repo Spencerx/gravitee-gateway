@@ -51,7 +51,7 @@ public class LoggableRequestProcessor extends AbstractProcessor {
             logger.warn("Unexpected error while evaluating logging condition: {}", ex.getMessage());
         }
 
-        handler.handle(null);
+        next.handle(null);
     }
 
     protected boolean evaluate(ExecutionContext context) throws Exception {

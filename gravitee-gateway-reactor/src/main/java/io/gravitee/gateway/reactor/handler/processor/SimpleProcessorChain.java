@@ -39,7 +39,7 @@ public class SimpleProcessorChain<T> extends AbstractProcessor<Processor<T>> {
 
             processor.handle(context);
         } else {
-            handler.handle(null);
+            next.handle(null);
         }
     }
 }

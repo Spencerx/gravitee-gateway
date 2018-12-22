@@ -52,6 +52,6 @@ public class TransactionProcessor extends AbstractProcessor<Void> {
 
         ((MutableExecutionContext)context).request(new TransactionRequest(transactionId, context.request()));
 
-        handler.handle(null);
+        next.handle(null);
     }
 }

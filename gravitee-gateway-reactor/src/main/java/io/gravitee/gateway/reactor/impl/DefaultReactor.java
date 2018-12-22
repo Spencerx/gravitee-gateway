@@ -27,8 +27,6 @@ import io.gravitee.gateway.api.Request;
 import io.gravitee.gateway.api.Response;
 import io.gravitee.gateway.api.buffer.Buffer;
 import io.gravitee.gateway.api.context.SimpleExecutionContext;
-import io.gravitee.gateway.api.handler.Handler;
-import io.gravitee.gateway.core.processor.Processor;
 import io.gravitee.gateway.env.GatewayConfiguration;
 import io.gravitee.gateway.reactor.Reactable;
 import io.gravitee.gateway.reactor.Reactor;
@@ -36,17 +34,13 @@ import io.gravitee.gateway.reactor.ReactorEvent;
 import io.gravitee.gateway.reactor.handler.ReactorHandler;
 import io.gravitee.gateway.reactor.handler.ReactorHandlerRegistry;
 import io.gravitee.gateway.reactor.handler.ReactorHandlerResolver;
-import io.gravitee.gateway.reactor.handler.ResponseTimeHandler;
-import io.gravitee.gateway.reactor.handler.processor.SimpleProcessorChain;
-import io.gravitee.gateway.reactor.handler.reporter.ReporterHandler;
-import io.gravitee.gateway.reactor.handler.transaction.TransactionHandlerFactory;
+import io.gravitee.gateway.reactor.handler.processor.DefaultResponseProcessorChainFactory;
+import io.gravitee.gateway.reactor.handler.processor.RequestProcessorChainFactory;
 import io.gravitee.gateway.report.ReporterService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
-
-import java.util.List;
 
 /**
  * @author David BRASSELY (david.brassely at graviteesource.com)
@@ -70,15 +64,7 @@ public class DefaultReactor extends AbstractService implements
     private ReactorHandlerResolver reactorHandlerResolver;
 
     @Autowired
-    private ReporterService reporterService;
-
-    @Autowired
-    private TransactionHandlerFactory transactionHandlerFactory;
-
-    @Autowired
     private GatewayConfiguration gatewayConfiguration;
-
-    private List<Processor> requestProcessors;
 
     @Override
     public void route(Request serverRequest, Response serverResponse) {
@@ -87,17 +73,34 @@ public class DefaultReactor extends AbstractService implements
         // Prepare request execution context
         ExecutionContext context = new SimpleExecutionContext(serverRequest, serverResponse);
 
+        // Set gateway tenant
+        serverRequest.metrics().setTenant(gatewayConfiguration.tenant().orElse(null));
+
         // Prepare handler chain
-        new SimpleProcessorChain(requestProcessors)
-                .handler(stream -> handleProxyInvocation(context, stream))
-                .errorHandler(failure -> handleError(context, failure))
-                .streamErrorHandler(failure -> handleError(context, failure))
+        new RequestProcessorChainFactory().create()
+                .handler(__ -> {
+                    ReactorHandler reactorHandler = reactorHandlerResolver.resolve(context.request());
+                    if (reactorHandler != null) {
+                        /*
+                        // Prepare the handler chain
+                        final Handler<ExecutionContext> responseHandlerChain = new ResponseTimeHandler(context.request(),
+                                new ReporterProcessor(reporterService));
+                        */
+
+                        reactorHandler.handle(context);
+                        new DefaultResponseProcessorChainFactory().create().handle(context);
+                    } else {
+                        sendNotFound(context);
+                    }
+                })
+                .errorHandler(__ -> {})
                 .exitHandler(__ -> {
                 //    context.request().resume();
                 //    context.response().end();
                 })
                 .handle(context);
 
+        /*
         Handler<ExecutionContext> requestHandlerChain = transactionHandlerFactory.create(context -> {
             ReactorHandler reactorHandler = reactorHandlerResolver.resolve(context.request());
             if (reactorHandler != null) {
@@ -111,11 +114,9 @@ public class DefaultReactor extends AbstractService implements
             }
         }, serverResponse);
 
-        // Set gateway tenant
-        serverRequest.metrics().setTenant(gatewayConfiguration.tenant().orElse(null));
-
         // And handle the request
         requestHandlerChain.handle(context);
+        */
     }
 
     private void sendNotFound(ExecutionContext context) {
